@@ -277,7 +277,7 @@ Resources:
         - Key: lab
           Value: !Ref LabTagValue
         - Key: Name
-          Value: !Ref AutoScalingInstance
+          Value: AutoScalingInstance
 
   # Scaling policy to scale out (add instance) when CPU usage > 50%
   ScaleOutPolicy:
