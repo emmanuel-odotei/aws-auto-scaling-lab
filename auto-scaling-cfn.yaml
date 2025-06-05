@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Auto Scaling Apache Web Server with ALB and CPU-based Scaling
+Description: Auto Scaling Apache Web Server with ALB and CPU-based Scaling including stress button
 
 Parameters:
   VpcCidr:
@@ -84,7 +84,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnetCidr
-      AvailabilityZone: !Select [0, !GetAZs '']
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: lab
           Value: !Ref LabTagValue
@@ -94,7 +94,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnet2Cidr
-      AvailabilityZone: !Select [1, !GetAZs '']
+      AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: lab
           Value: !Ref LabTagValue
@@ -168,56 +168,45 @@ Resources:
             #!/bin/bash -xe
             yum update -y
             yum install -y httpd stress
-            sed -i '/^#LoadModule cgi_module modules\/mod_cgi.so/s/^#//' /etc/httpd/conf.modules.d/00-base.conf
-            mkdir -p /var/www/cgi-bin
-            chown apache:apache /var/www/cgi-bin
             systemctl start httpd
             systemctl enable httpd
+
             INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
             IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-            cat <<EOF > /var/www/html/index.html
-            <!DOCTYPE html>
+
+            # Create stress.sh script to run stress in background for 60 seconds
+            cat << 'EOF' > /var/www/html/stress.sh
+            #!/bin/bash
+            nohup stress --cpu 2 --timeout 60 &
+            echo "Stress test started for 60 seconds"
+            EOF
+            chmod +x /var/www/html/stress.sh
+
+            # Setup Apache to serve CGI scripts
+            echo "ScriptAlias /cgi-bin/ /var/www/cgi-bin/" >> /etc/httpd/conf/httpd.conf
+            mkdir -p /var/www/cgi-bin/
+            cp /var/www/html/stress.sh /var/www/cgi-bin/stress.sh
+            chmod +x /var/www/cgi-bin/stress.sh
+
+            # Enable CGI module (if not already enabled)
+            if ! grep -q 'mod_cgi.so' /etc/httpd/conf.modules.d/00-base.conf; then
+              echo "LoadModule cgi_module modules/mod_cgi.so" >> /etc/httpd/conf.modules.d/00-base.conf
+            fi
+
+            systemctl restart httpd
+
+            # Create web page with Stress CPU button calling CGI script
+            cat << EOF > /var/www/html/index.html
             <html>
-            <head>
-              <title>Auto Scaling Lab</title>
-              <style>
-                body { font-family: Arial; text-align: center; margin-top: 50px; }
-                button { padding: 10px 20px; font-size: 14px; }
-              </style>
-            </head>
             <body>
               <h1>Hello from $IP / $INSTANCE_ID</h1>
-              <p>This instance is auto-scaled.</p>
-              <button onclick="stressCPU()">Stress CPU</button>
-              <script>
-                function stressCPU() {
-                  fetch('/cgi-bin/stress-cpu', { method: 'POST' })
-                    .then(() => alert('CPU stress triggered!'))
-                    .catch(err => alert('Error: ' + err));
-                }
-              </script>
+              <form action="/cgi-bin/stress.sh" method="post">
+                <button type="submit">Stress CPU</button>
+              </form>
             </body>
             </html>
             EOF
-            cat <<EOF > /var/www/cgi-bin/stress-cpu
-            #!/bin/bash
-            echo "Content-type: text/html"
-            echo ""
-            echo "<html><body><h3>CPU stress started...</h3></body></html>"
-            nohup stress --cpu 2 --timeout 60 >/dev/null 2>&1 &
-            EOF
-            chmod +x /var/www/cgi-bin/stress-cpu
-            if ! grep -q "<Directory \"/var/www/cgi-bin\">" /etc/httpd/conf/httpd.conf; then
-              cat <<CGI >> /etc/httpd/conf/httpd.conf
-            <Directory "/var/www/cgi-bin">
-                AllowOverride None
-                Options +ExecCGI
-                Require all granted
-                AddHandler cgi-script .cgi .sh
-            </Directory>
-            CGI
-              systemctl restart httpd
-            fi
+
       TagSpecifications:
         - ResourceType: launch-template
           Tags:
@@ -292,31 +281,29 @@ Resources:
 
   ScaleOutPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
-    Metadata:
-      Description: "Scale out policy to add instances when average CPU > 50%"
     Properties:
       AutoScalingGroupName: !Ref AutoScalingGroup
-      PolicyType: TargetTrackingScaling
-      Cooldown: 60
-      TargetTrackingConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ASGAverageCPUUtilization
-        TargetValue: 50.0
-        DisableScaleIn: false
+      PolicyType: SimpleScaling
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: 1
+      Cooldown: 120
 
-  ScaleInPolicy:
-    Type: AWS::AutoScaling::ScalingPolicy
-    Metadata:
-      Description: "Scale in policy to remove instances when average CPU < 20%"
+  HighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
     Properties:
-      AutoScalingGroupName: !Ref AutoScalingGroup
-      PolicyType: TargetTrackingScaling
-      Cooldown: 60
-      TargetTrackingConfiguration:
-        PredefinedMetricSpecification:
-          PredefinedMetricType: ASGAverageCPUUtilization
-        TargetValue: 20.0
-        DisableScaleIn: false
+      AlarmDescription: Alarm to scale out when CPU > 50%
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref AutoScalingGroup
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref ScaleOutPolicy
 
 Outputs:
   LoadBalancerDNS:
