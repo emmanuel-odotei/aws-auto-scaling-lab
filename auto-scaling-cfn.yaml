@@ -5,7 +5,7 @@ Parameters:
   AmiId:
     Type: String
     Description: AMI ID for EC2 instances
-    Default: "{{resolve:ssm:/autolab/frankfurt/ami-id}}"
+    Default: "{{resolve:ssm:/autolab/frankfurt/ami-id:1}}"
 
   LabTagValue:
     Type: String
