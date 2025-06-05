@@ -1,0 +1,316 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Auto Scaling Apache Web Server with ALB and CPU-based Scaling
+
+Parameters:
+  # Updated VPC CIDR block
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+
+  # Updated public subnet CIDR (first /24 in the new VPC)
+  PublicSubnetCidr:
+    Type: String
+    Default: 10.20.1.0/24
+
+  # Updated private subnet CIDR (second /24 in the new VPC)
+  PrivateSubnetCidr:
+    Type: String
+    Default: 10.20.2.0/24
+
+  # AMI ID parameter remains unchanged
+  AmiId:
+    Type: String
+    Description: AMI ID for EC2 instances
+    Default: ami-02b7d5b1e55a7b5f1 # Default Amazon Linux 2 AMI (per region)
+
+  #Lab Tag Value
+  LabTagValue:
+    Type: String
+    Default: week3_lab1
+
+Resources:
+  # Create the VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: AutoScalingLabVPC
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Create an Internet Gateway
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Attach Internet Gateway to VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Create a public subnet for ALB
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetCidr
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Create a private subnet for EC2 instances
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetCidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Create a route table for the public subnet
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Add a default route to the Internet Gateway
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associate the public subnet with the public route table
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security group for EC2 instances (allow HTTP from ALB)
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP access from ALB
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      Tags: 
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Security group for ALB (allow HTTP from anywhere)
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP from internet
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Launch Template for EC2 instances
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        InstanceType: t2.micro
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash -xe
+            # Update and install Apache HTTPD and stress
+            yum update -y
+            yum install -y httpd stress
+
+            # Enable CGI support
+            sed -i '/^#LoadModule cgi_module modules\/mod_cgi.so/s/^#//' /etc/httpd/conf.modules.d/00-base.conf
+            mkdir -p /var/www/cgi-bin
+            chown apache:apache /var/www/cgi-bin
+
+            systemctl start httpd
+            systemctl enable httpd
+
+            # Get instance metadata
+            INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+            IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
+
+            # Create a basic HTML page with a stress CPU button
+            cat <<EOF > /var/www/html/index.html
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <title>Auto Scaling Lab</title>
+              <style>
+                body { font-family: Arial; text-align: center; margin-top: 50px; }
+                button { padding: 10px 20px; font-size: 14px; }
+              </style>
+            </head>
+            <body>
+              <h1>Hello from \$IP / \$INSTANCE_ID</h1>
+              <p>This instance is auto-scaled.</p>
+              <button onclick="stressCPU()">Stress CPU</button>
+              <script>
+                function stressCPU() {
+                  fetch('/cgi-bin/stress-cpu', { method: 'POST' })
+                    .then(() => alert('CPU stress triggered!'))
+                    .catch(err => alert('Error: ' + err));
+                }
+              </script>
+            </body>
+            </html>
+            EOF
+
+            # CGI script to stress CPU
+            cat <<EOF > /var/www/cgi-bin/stress-cpu
+            #!/bin/bash
+            echo "Content-type: text/html"
+            echo ""
+            echo "<html><body><h3>CPU stress started...</h3></body></html>"
+            nohup stress --cpu 2 --timeout 60 >/dev/null 2>&1 &
+            EOF
+
+            chmod +x /var/www/cgi-bin/stress-cpu
+
+            # Enable CGI script execution in Apache config if not already set
+            if ! grep -q "<Directory \"/var/www/cgi-bin\">" /etc/httpd/conf/httpd.conf; then
+              cat <<CGI >> /etc/httpd/conf/httpd.conf
+
+            <Directory "/var/www/cgi-bin">
+                AllowOverride None
+                Options +ExecCGI
+                Require all granted
+                AddHandler cgi-script .cgi .sh
+            </Directory>
+            CGI
+              systemctl restart httpd
+            fi
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - Key: lab
+              Value: !Ref LabTagValue
+
+  # Target Group for ALB to route traffic to EC2 instances
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VPC
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckPath: /
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Application Load Balancer
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: AutoScalingALB
+      Subnets:
+        - !Ref PublicSubnet
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+      Scheme: internet-facing
+      Type: application
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  # Listener for the ALB on port 80 forwarding to the target group
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  # Auto Scaling Group with minimum, maximum, and desired capacity
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref PrivateSubnet
+      MinSize: "1"
+      MaxSize: "3"
+      DesiredCapacity: "1"
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      DefaultCooldown: 60
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+        - Key: Name
+          Value: !Ref AutoScalingInstance
+
+  # Scaling policy to scale out (add instance) when CPU usage > 50%
+  ScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Metadata:
+      Description: "Scale out policy to add instances when average CPU > 50%"
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 50.0
+        DisableScaleIn: false
+        EstimatedInstanceWarmup: 60
+
+  # Scaling policy to scale in (remove instance) when CPU usage < 20%
+  ScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Metadata:
+      Description: "Scale in policy to remove instances when average CPU < 20%"
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ASGAverageCPUUtilization
+        TargetValue: 20.0
+        DisableScaleIn: false
+        EstimatedInstanceWarmup: 60
+
+Outputs:
+  # Output the DNS name of the load balancer
+  LoadBalancerDNS:
+    Description: ALB DNS Name
+    Value: !GetAtt LoadBalancer.DNSName
