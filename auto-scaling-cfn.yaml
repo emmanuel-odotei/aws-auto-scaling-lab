@@ -2,30 +2,10 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Auto Scaling Apache Web Server with ALB and CPU-based Scaling
 
 Parameters:
-  VpcCidr:
-    Type: String
-    Default: 10.20.0.0/16
-
-  PublicSubnetCidr:
-    Type: String
-    Default: 10.20.1.0/24
-
-  PublicSubnet2Cidr:
-    Type: String
-    Default: 10.20.3.0/24
-
-  PrivateSubnetCidr:
-    Type: String
-    Default: 10.20.2.0/24
-
-  PrivateSubnet2Cidr:
-    Type: String
-    Default: 10.20.4.0/24
-
   AmiId:
     Type: String
     Description: AMI ID for EC2 instances
-    Default: ami-08aa372c213609089 #Frankfurt
+    Default: "{{resolve:ssm:/autolab/frankfurt/ami-id}}"
 
   LabTagValue:
     Type: String
@@ -34,12 +14,13 @@ Parameters:
   KeyPairName:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
     Type: AWS::EC2::KeyPair::KeyName
+    Default: secure-vpc-key-pair
 
 Resources:
   VPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: !Ref VpcCidr
+      CidrBlock: 10.20.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
       Tags:
@@ -65,7 +46,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Ref PublicSubnetCidr
+      CidrBlock: 10.20.1.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
@@ -76,7 +57,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Ref PublicSubnet2Cidr
+      CidrBlock: 10.20.3.0/24
       MapPublicIpOnLaunch: true
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
@@ -87,7 +68,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Ref PrivateSubnetCidr
+      CidrBlock: 10.20.2.0/24
       AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: lab
@@ -97,7 +78,7 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Ref PrivateSubnet2Cidr
+      CidrBlock: 10.20.4.0/24
       AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: lab
