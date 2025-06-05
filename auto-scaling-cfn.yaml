@@ -292,7 +292,6 @@ Resources:
           PredefinedMetricType: ASGAverageCPUUtilization
         TargetValue: 50.0
         DisableScaleIn: false
-        EstimatedInstanceWarmup: 60
 
   # Scaling policy to scale in (remove instance) when CPU usage < 20%
   ScaleInPolicy:
@@ -307,7 +306,6 @@ Resources:
           PredefinedMetricType: ASGAverageCPUUtilization
         TargetValue: 20.0
         DisableScaleIn: false
-        EstimatedInstanceWarmup: 60
 
 Outputs:
   # Output the DNS name of the load balancer
