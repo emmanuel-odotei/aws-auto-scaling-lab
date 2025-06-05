@@ -12,7 +12,7 @@ Parameters:
     Default: week3_lab1
 
   KeyPairName:
-    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Description: Name of existing EC2 KeyPair to enable SSH access to the instances
     Type: AWS::EC2::KeyPair::KeyName
     Default: secure-vpc-key-pair
 
