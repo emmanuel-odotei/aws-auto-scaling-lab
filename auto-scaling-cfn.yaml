@@ -280,8 +280,10 @@ Resources:
       Tags:
         - Key: lab
           Value: !Ref LabTagValue
+          PropagateAtLaunch: true
         - Key: Name
           Value: AutoScalingInstance
+          PropagateAtLaunch: true
 
   ScaleOutPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
