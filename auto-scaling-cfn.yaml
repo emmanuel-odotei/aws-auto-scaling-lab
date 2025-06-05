@@ -25,7 +25,7 @@ Parameters:
   AmiId:
     Type: String
     Description: AMI ID for EC2 instances
-    Default: ami-08aa372c213609089
+    Default: ami-08aa372c213609089 #Frankfurt
 
   LabTagValue:
     Type: String
@@ -88,7 +88,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnetCidr
-      AvailabilityZone: !Select [0, !GetAZs '']
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: lab
           Value: !Ref LabTagValue
@@ -98,7 +98,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       CidrBlock: !Ref PrivateSubnet2Cidr
-      AvailabilityZone: !Select [1, !GetAZs '']
+      AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: lab
           Value: !Ref LabTagValue
@@ -145,6 +145,29 @@ Resources:
         - Key: lab
           Value: !Ref LabTagValue
 
+  # --- SSM Role and Instance Profile ---
+  SSMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: lab
+          Value: !Ref LabTagValue
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref SSMRole
+
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -166,37 +189,69 @@ Resources:
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
+      LaunchTemplateName: WebLaunchTemplate
       LaunchTemplateData:
         ImageId: !Ref AmiId
         InstanceType: t2.micro
+        IamInstanceProfile:
+          Arn: !GetAtt InstanceProfile.Arn
         SecurityGroupIds:
-          - !Ref InstanceSecurityGroup
+          - !GetAtt InstanceSecurityGroup.GroupId
         KeyName: !Ref KeyPairName
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash -xe
             yum update -y
             yum install -y httpd stress
-            amazon-linux-extras enable epel
-            yum clean metadata
-
-            yum install -y amazon-ssm-agent
-            systemctl enable amazon-ssm-agent
-            systemctl start amazon-ssm-agent
-            
-            systemctl start httpd
             systemctl enable httpd
-            INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-            IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-            echo "<html><body><h1>Hello from $IP / $INSTANCE_ID</h1>" > /var/www/html/index.html
-            echo "<button onclick='location.href=\"/stress\"'>Stress CPU</button>" >> /var/www/html/index.html
-            # Setup simple stress endpoint
-            cat << 'EOF' > /etc/httpd/conf.d/stress.conf
-            <Location /stress>
-              SetHandler server-status
-            </Location>
+            systemctl start httpd
+
+            # Use IMDSv2 to get instance metadata
+            TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+                          -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+            INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+                          http://169.254.169.254/latest/meta-data/instance-id)
+
+            IP_ADDRESS=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+                          http://169.254.169.254/latest/meta-data/local-ipv4)
+
+            cat <<EOF > /var/www/html/index.html
+            <html>
+            <head>
+                <title>Auto Scaling Lab</title>
+                <style>
+                    body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
+                    button { padding: 10px 20px; font-size: 16px; margin-top: 20px; }
+                </style>
+            </head>
+            <body>
+                <h1>Hello from $IP_ADDRESS / $INSTANCE_ID</h1>
+                <p>This is an auto-scaled Apache web server instance.</p>
+                <button onclick="stressCPU()">Stress CPU (Trigger Scaling)</button>
+                <script>
+                    function stressCPU() {
+                        fetch('/stress-cpu', { method: 'POST' })
+                            .then(response => alert('CPU stress initiated! Scaling may occur if utilization exceeds 50%'))
+                            .catch(error => alert('Error: ' + error));
+                    }
+                </script>
+            </body>
+            </html>
             EOF
-            systemctl restart httpd
+
+            # Create endpoint for CPU stress
+            cat <<EOF > /var/www/html/stress-cpu
+            #!/bin/bash
+            echo "Content-type: text/html"
+            echo ""
+            echo "<html><body>"
+            echo "Starting CPU stress test for 60 seconds..."
+            echo "</body></html>"
+            nohup stress --cpu 2 --timeout 60 >/dev/null 2>&1 &
+            EOF
+            chmod +x /var/www/html/stress-cpu
+            ln -s /var/www/html/stress-cpu /var/www/cgi-bin/stress-cpu
 
       TagSpecifications:
         - ResourceType: launch-template
@@ -207,11 +262,12 @@ Resources:
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
+      Name: AutoScalingLabTG
       VpcId: !Ref VPC
       Port: 80
       Protocol: HTTP
       TargetType: instance
-      HealthCheckPath: /
+      HealthCheckPath: /index.html
       HealthCheckIntervalSeconds: 30
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
@@ -249,8 +305,8 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       VPCZoneIdentifier:
-        - !Ref PrivateSubnet
-        - !Ref PrivateSubnet2
+        - !Ref PublicSubnet
+        - !Ref PublicSubnet2
       MinSize: "1"
       MaxSize: "3"
       DesiredCapacity: "1"
@@ -273,11 +329,22 @@ Resources:
   ScaleOutPolicy:
     Type: AWS::AutoScaling::ScalingPolicy
     Properties:
+      PolicyName: ScaleOutPolicy
       AutoScalingGroupName: !Ref AutoScalingGroup
       PolicyType: SimpleScaling
       AdjustmentType: ChangeInCapacity
       ScalingAdjustment: 1
-      Cooldown: 120
+      Cooldown: 60
+
+  ScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: ScaleInPolicy
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyType: SimpleScaling
+      AdjustmentType: ChangeInCapacity
+      ScalingAdjustment: -1
+      Cooldown: 300
 
   HighCPUAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -295,6 +362,29 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       AlarmActions:
         - !Ref ScaleOutPolicy
+      Tags:
+        - Key: Name
+          Value: AutoScalingHighCPUAlarm
+
+  LowCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alarm to scale in when CPU < 50%
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref AutoScalingGroup
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 50
+      ComparisonOperator: LessThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref ScaleInPolicy
+      Tags:
+        - Key: Name
+          Value: AutoScalingLowCPUAlarm
 
 Outputs:
   LoadBalancerDNS:
