@@ -296,9 +296,9 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
-      Cooldown: 300
+      Cooldown: 60
       HealthCheckType: ELB
-      HealthCheckGracePeriod: 300
+      HealthCheckGracePeriod: 60
       Tags:
         - Key: lab
           Value: !Ref LabTagValue
@@ -325,7 +325,7 @@ Resources:
       PolicyType: SimpleScaling
       AdjustmentType: ChangeInCapacity
       ScalingAdjustment: -1
-      Cooldown: 300
+      Cooldown: 60
 
   HighCPUAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -357,7 +357,7 @@ Resources:
         - Name: AutoScalingGroupName
           Value: !Ref AutoScalingGroup
       Statistic: Average
-      Period: 300
+      Period: 60
       EvaluationPeriods: 2
       Threshold: 50
       ComparisonOperator: LessThanOrEqualToThreshold
