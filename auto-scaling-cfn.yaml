@@ -85,7 +85,7 @@ Resources:
     Type: AWS::EC2::RouteTable
     Properties:
       VpcId: !Ref VPC
-      Tags: 
+      Tags:
         - Key: lab
           Value: !Ref LabTagValue
 
@@ -116,7 +116,7 @@ Resources:
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
-      Tags: 
+      Tags:
         - Key: lab
           Value: !Ref LabTagValue
 
@@ -272,7 +272,10 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
-      DefaultCooldown: 60
+        Cooldown: 60
+      Cooldown: 300
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
       Tags:
         - Key: lab
           Value: !Ref LabTagValue
@@ -287,6 +290,7 @@ Resources:
     Properties:
       AutoScalingGroupName: !Ref AutoScalingGroup
       PolicyType: TargetTrackingScaling
+      Cooldown: 60
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ASGAverageCPUUtilization
@@ -301,6 +305,7 @@ Resources:
     Properties:
       AutoScalingGroupName: !Ref AutoScalingGroup
       PolicyType: TargetTrackingScaling
+      Cooldown: 60
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ASGAverageCPUUtilization
