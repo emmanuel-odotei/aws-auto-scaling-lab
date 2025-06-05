@@ -1,0 +1,11 @@
+template-file-path: auto-scaling-cfn.yaml
+parameters:
+  PublicSubnetCidr: 10.20.1.0/24
+  PrivateSubnetCidr: 10.20.2.0/24
+  KeyPairName: secure-vpc-key-pair
+  PublicSubnet2Cidr: 10.20.3.0/24
+  LabTagValue: week3_lab1
+  VpcCidr: 10.20.0.0/16
+  PrivateSubnet2Cidr: 10.20.4.0/24
+  AmiId: ami-08aa372c213609089
+tags: {}
