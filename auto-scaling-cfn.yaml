@@ -229,7 +229,7 @@ Resources:
             echo "<html><body>"
             echo "Starting CPU stress test for 60 seconds..."
             echo "</body></html>"
-            nohup stress --cpu 2 --timeout 60 >/dev/null 2>&1 &
+            nohup stress --cpu 2 --timeout 300 >/dev/null 2>&1 &
             EOF
             chmod +x /var/www/html/stress-cpu
             ln -s /var/www/html/stress-cpu /var/www/cgi-bin/stress-cpu
