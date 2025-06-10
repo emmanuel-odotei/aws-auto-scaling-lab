@@ -1,6 +1,0 @@
-template-file-path: auto-scaling-cfn.yaml
-parameters:
-  KeyPairName: secure-vpc-key-pair
-  LabTagValue: week3_lab1
-  AmiId: ami-08aa372c213609089
-tags: {}
