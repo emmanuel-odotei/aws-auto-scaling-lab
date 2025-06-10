@@ -203,17 +203,17 @@ Resources:
                 <title>Auto Scaling Lab</title>
                 <style>
                     body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
-                    button { padding: 10px 20px; font-size: 16px; margin-top: 20px; }
+                    button { padding: 10px 20px; font-size: 14px; margin-top: 20px; }
                 </style>
             </head>
             <body>
                 <h1>Hello from $IP_ADDRESS / $INSTANCE_ID</h1>
-                <p>This is an auto-scaled Apache web server instance.</p>
-                <button onclick="stressCPU()">Stress CPU (Trigger Scaling)</button>
+                <p>Welcome to my auto-scaled Apache web server.</p>
+                <button onclick="stressCPU()">Stress CPU</button>
                 <script>
                     function stressCPU() {
                         fetch('/stress-cpu', { method: 'POST' })
-                            .then(response => alert('CPU stress initiated! Scaling may occur if utilization exceeds 50%'))
+                            .then(response => alert('CPU stress started! Over 50% CPU utilization triggers scaling'))
                             .catch(error => alert('Error: ' + error));
                     }
                 </script>
@@ -227,7 +227,7 @@ Resources:
             echo "Content-type: text/html"
             echo ""
             echo "<html><body>"
-            echo "Starting CPU stress test for 60 seconds..."
+            echo "Starting CPU stress test for 300 seconds..."
             echo "</body></html>"
             nohup stress --cpu 2 --timeout 300 >/dev/null 2>&1 &
             EOF
