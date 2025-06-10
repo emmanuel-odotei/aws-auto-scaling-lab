@@ -350,7 +350,7 @@ Resources:
   LowCPUAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmDescription: Alarm to scale in when CPU less than 50%
+      AlarmDescription: Alarm to scale in when CPU less than or equals 50%
       Namespace: AWS/EC2
       MetricName: CPUUtilization
       Dimensions:
