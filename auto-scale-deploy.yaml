@@ -1,0 +1,6 @@
+template-file-path: auto-scaling-cfn.yaml
+parameters:
+  KeyPairName: secure-vpc-key-pair
+  LabTagValue: week3_lab1
+  AmiId: '{{resolve:ssm:/autolab/frankfurt/ami-id:1}}'
+tags: {}
