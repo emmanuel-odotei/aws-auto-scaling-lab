@@ -208,7 +208,7 @@ Resources:
             </head>
             <body>
                 <h1>Hello from $IP_ADDRESS / $INSTANCE_ID</h1>
-                <p>Welcome to my auto-scaled Apache web server.</p>
+                <p>Welcome to my auto-scaled Apache Web server.</p>
                 <button onclick="stressCPU()">Stress CPU</button>
                 <script>
                     function stressCPU() {
@@ -330,7 +330,7 @@ Resources:
   HighCPUAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmDescription: Alarm to scale out when CPU > 50%
+      AlarmDescription: Alarm to scale out when CPU greater than 50%
       Namespace: AWS/EC2
       MetricName: CPUUtilization
       Dimensions:
@@ -350,7 +350,7 @@ Resources:
   LowCPUAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmDescription: Alarm to scale in when CPU < 50%
+      AlarmDescription: Alarm to scale in when CPU less than 50%
       Namespace: AWS/EC2
       MetricName: CPUUtilization
       Dimensions:
